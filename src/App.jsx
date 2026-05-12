@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Settings, LayoutGrid, Sun, AlertTriangle, CheckCircle, FileText, Maximize, ArrowRightLeft, Box, HardHat, Ruler, CloudSun, Wind } from 'lucide-react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 // ==========================================
 // 1. LOCAL DATABASE & CONSTANTS
