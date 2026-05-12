@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Settings, LayoutGrid, Sun, Moon, AlertTriangle, CheckCircle, FileText, ArrowRightLeft, Box, HardHat, Ruler, CloudSun, Wind, Activity, Layers, X, MapPin, Zap, TrendingUp, Download, Cpu } from 'lucide-react';
+import { Settings, LayoutGrid, Sun, Moon, AlertTriangle, CheckCircle, FileText, ArrowRightLeft, Box, HardHat, Ruler, CloudSun, Wind, Activity, Layers, X, MapPin, Zap, TrendingUp, Download, Cpu, Camera } from 'lucide-react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 // ==========================================
 // 1. EXTRACTED TIER 1 DATABASE (With Electrical Currents)
@@ -56,6 +56,10 @@ const App = () => {
   const [showBOM, setShowBOM] = useState(false);
   const [brightness, setBrightness] = useState(1.0);
   
+  // --- REPORT GENERATION STATE ---
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [reportImages, setReportImages] = useState([]);
+
   // --- UNIT STATES ---
   const [unitGlobal, setUnitGlobal] = useState('metric'); 
   const [unitSpacing, setUnitSpacing] = useState('mm'); 
@@ -150,21 +154,78 @@ const App = () => {
   const formatWind = (kmh) => unitGlobal === 'metric' ? `${kmh.toFixed(0)} km/h` : `${(kmh * 0.621371).toFixed(0)} mph`;
   const formatArea = (sqm) => unitGlobal === 'metric' ? `${sqm.toFixed(1)} m²` : `${(sqm * 10.7639).toFixed(1)} sq ft`;
 
+  // --- REPORT GENERATION (CAPTURE CAD VIEWS) ---
+  const handleGenerateReport = () => {
+    setIsGeneratingReport(true);
+    const prevTheme = theme;
+    const prevMode = visualMode;
+    const prevMeasurements = showMeasurements;
+
+    // 1. Force the engine into Solid Mode + Light Mode + Blueprints ON
+    setTheme('light');
+    setVisualMode('solid');
+    setShowMeasurements(true);
+
+    // 2. Wait 800ms for React to render and Three.js to compile new solid materials
+    setTimeout(() => {
+        const renderer = rendererRef.current;
+        const scene = sceneRef.current;
+        const structGroup = structureGroupRef.current;
+        
+        if (renderer && scene && structGroup) {
+            // Setup an independent camera for taking the shots so we don't mess up the user's OrbitControls
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            const cam = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
+            
+            // Calculate exact bounding box to frame the 3D structure perfectly
+            const box = new THREE.Box3().setFromObject(structGroup);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = cam.fov * (Math.PI / 180);
+            let dist = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+            dist = Math.max(dist, 8); // Minimum distance
+
+            const captureFrame = (px, py, pz) => {
+                cam.position.set(center.x + px, center.y + py, center.z + pz);
+                cam.lookAt(center);
+                renderer.render(scene, cam);
+                return renderer.domElement.toDataURL('image/png');
+            };
+
+            // Grab the 4 requested angles
+            const shots = [
+                { id: 'top', label: "Top Orthographic View", src: captureFrame(0.01, dist, 0) },
+                { id: 'front', label: "Front Elevation", src: captureFrame(0, 0, dist) },
+                { id: 'side', label: "Side Elevation", src: captureFrame(dist, 0, 0) },
+                { id: 'diag', label: "Diagonal Isometric", src: captureFrame(dist * 0.7, dist * 0.6, dist * 0.7) }
+            ];
+
+            setReportImages(shots);
+        }
+
+        // 3. Restore User's original settings
+        setTheme(prevTheme);
+        setVisualMode(prevMode);
+        setShowMeasurements(prevMeasurements);
+        
+        setIsGeneratingReport(false);
+        setShowBOM(true); // Open the Modal
+    }, 800);
+  };
+
   // --- GPS AUTO-OPTIMIZATION ---
   const handleAutoOptimize = () => {
       setIsOptimizing(true);
-      // Simulate GPS Fetch (Using fixed optimal logic for demonstration)
       setTimeout(() => {
           const optimalLat = 31.5; // Example: Lahore/Texas latitude
           setLocationData({ lat: optimalLat, city: "Optimized (GPS)" });
-          
-          // Calculate required rear height to achieve optimal tilt (Latitude ≈ Optimal Tilt)
           const optimalTiltRad = THREE.MathUtils.degToRad(optimalLat);
           const newRearHeight = frontHeight + Math.sin(optimalTiltRad) * totalArrayLength;
-          
           setRearHeight(newRearHeight);
-          setBracingType('full_x'); // Auto-recommend safest bracing
-          setVisualMode('solid'); // Switch to engineering view
+          setBracingType('full_x'); 
+          setVisualMode('solid'); 
           setIsOptimizing(false);
       }, 1500);
   };
@@ -596,13 +657,16 @@ const App = () => {
         input[type=number]:focus { border-color: #00f0ff; }
         select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300f0ff%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right .7rem top 50%; background-size: .65rem auto; }
         ::-webkit-scrollbar { width: 4px; height: 4px; } ::-webkit-scrollbar-thumb { background: rgba(0, 240, 255, 0.4); border-radius: 4px; }
+        
         @media print {
+            @page { size: portrait; margin: 15mm; }
             body * { visibility: hidden; }
             .print-section, .print-section * { visibility: visible; }
-            .print-section { position: absolute; left: 0; top: 0; width: 100%; height: auto; background: white; color: black; box-shadow: none; border: none; padding: 20px; }
+            .print-section { position: absolute; left: 0; top: 0; width: 100%; height: auto; background: white; color: black; box-shadow: none; border: none; padding: 0; overflow: visible !important; }
             .no-print { display: none !important; }
-            .print-border { border-color: #e2e8f0 !important; }
+            .print-border { border-color: #cbd5e1 !important; }
             .print-text { color: #0f172a !important; }
+            .print-break-avoid { break-inside: avoid; page-break-inside: avoid; }
         }
       `}</style>
 
@@ -787,14 +851,15 @@ const App = () => {
             <span className="text-slate-500">Seismic: <strong className={earthquakeRes > 6.0 ? "text-cyan-500" : "text-amber-500"}>Mag {earthquakeRes.toFixed(1)}</strong></span>
           </div>
         </div>
-        <button onClick={() => setShowBOM(true)} className="flex items-center gap-2 bg-cyan-500 text-black px-5 py-2 rounded-lg font-bold text-xs hover:bg-cyan-400 transition-colors shadow-[0_0_15px_rgba(0,240,255,0.4)] shrink-0 ml-4">
-          <FileText size={14} /> Full Report
+        <button onClick={handleGenerateReport} disabled={isGeneratingReport} className="flex items-center gap-2 bg-cyan-500 text-black px-5 py-2 rounded-lg font-bold text-xs hover:bg-cyan-400 transition-colors shadow-[0_0_15px_rgba(0,240,255,0.4)] shrink-0 ml-4">
+          {isGeneratingReport ? <Activity size={14} className="animate-spin" /> : <FileText size={14} />}
+          {isGeneratingReport ? "Generating CAD..." : "Full Report"}
         </button>
       </footer>
 
       {/* BOM & ENGINEERING REPORT MODAL (PRINTABLE) */}
       {showBOM && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-8 overflow-y-auto no-print">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 md:p-8 overflow-y-auto no-print">
             <div className={`print-section w-full max-w-5xl my-auto rounded-xl shadow-2xl border border-white/10 ${theme==='light'?'bg-white text-black':'bg-[#111115] text-slate-200'} p-8 relative`}>
                 
                 <div className="flex items-center justify-between border-b border-slate-500/30 pb-6 mb-8 print-border">
@@ -804,10 +869,62 @@ const App = () => {
                         <button onClick={() => setShowBOM(false)} className="p-2 rounded-full bg-slate-500/20 hover:bg-red-500 hover:text-white transition"><X size={20}/></button>
                     </div>
                 </div>
+
+                {/* Section 0: Structural Dimensions & Details */}
+                <h3 className="text-sm text-slate-500 uppercase font-bold tracking-widest mb-4 flex items-center gap-2"><Box size={16}/> Structural Dimensions & Geometry</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 print-break-avoid">
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Array Matrix</p>
+                        <p className="text-lg font-mono font-bold print-text">{panelRows} Rows × {panelCols} Cols</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Overall Width (X)</p>
+                        <p className="text-lg font-mono font-bold print-text">{formatMeters(totalArrayWidth)}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Overall Depth (Z)</p>
+                        <p className="text-lg font-mono font-bold print-text">{formatMeters(totalArrayLength)}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Ground Footprint</p>
+                        <p className="text-lg font-mono font-bold print-text">{formatArea(baseAreaSqMeters)}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Front Clearance</p>
+                        <p className="text-lg font-mono font-bold print-text">{formatMeters(frontHeight)}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Rear Clearance</p>
+                        <p className="text-lg font-mono font-bold print-text">{formatMeters(rearHeight)}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Module Alignment</p>
+                        <p className="text-lg font-mono font-bold print-text capitalize">{panelAlignment}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
+                        <p className="text-xs text-slate-500 mb-1">Module Spacing Gap</p>
+                        <p className="text-lg font-mono font-bold print-text">{spacingMeters * 1000} mm</p>
+                    </div>
+                </div>
+
+                {/* Section 1: CAD Images */}
+                {reportImages.length > 0 && (
+                    <div className="print-break-avoid mb-8">
+                        <h3 className="text-sm text-slate-500 uppercase font-bold tracking-widest mb-4 flex items-center gap-2"><Camera size={16}/> Structural CAD Renderings (Solid Mode)</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            {reportImages.map(img => (
+                                <div key={img.id} className="border border-slate-500/20 rounded-lg overflow-hidden relative print-border bg-[#e2e8f0]">
+                                    <span className="absolute top-2 left-2 bg-black/70 text-white text-[10px] uppercase font-bold px-2 py-1 rounded shadow backdrop-blur-md">{img.label}</span>
+                                    <img src={img.src} alt={img.label} className="w-full h-auto object-cover object-center aspect-video" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 
-                {/* Section 1: Project Specs */}
+                {/* Section 2: Project Specs */}
                 <h3 className="text-sm text-slate-500 uppercase font-bold tracking-widest mb-4 flex items-center gap-2"><MapPin size={16}/> Site & Environmental Thresholds</h3>
-                <div className="grid grid-cols-4 gap-4 mb-8">
+                <div className="grid grid-cols-4 gap-4 mb-8 print-break-avoid">
                     <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border">
                         <p className="text-xs text-slate-500 mb-1">Tilt Angle</p>
                         <p className="text-xl font-mono font-bold print-text">{tiltAngleDeg.toFixed(1)}°</p>
@@ -826,26 +943,26 @@ const App = () => {
                     </div>
                 </div>
 
-                {/* Section 2: Electrical Yield Forecast */}
+                {/* Section 3: Electrical Yield Forecast */}
                 <h3 className="text-sm text-slate-500 uppercase font-bold tracking-widest mb-4 flex items-center gap-2"><TrendingUp size={16}/> Production Forecast (85% PR)</h3>
-                <div className="grid grid-cols-3 gap-4 mb-8">
-                    <div className="p-5 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
-                        <p className="text-xs text-cyan-500 uppercase font-bold tracking-widest">Daily Generation</p>
-                        <p className="text-3xl font-mono font-bold text-cyan-500 mt-2">{dailyYieldKwh.toFixed(1)} <span className="text-lg">kWh</span></p>
+                <div className="grid grid-cols-3 gap-4 mb-8 print-break-avoid">
+                    <div className="p-5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 print-border">
+                        <p className="text-xs text-cyan-600 dark:text-cyan-500 uppercase font-bold tracking-widest">Daily Generation</p>
+                        <p className="text-3xl font-mono font-bold text-cyan-600 dark:text-cyan-500 mt-2">{dailyYieldKwh.toFixed(1)} <span className="text-lg">kWh</span></p>
                     </div>
-                    <div className="p-5 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
-                        <p className="text-xs text-cyan-500 uppercase font-bold tracking-widest">Monthly Yield</p>
-                        <p className="text-3xl font-mono font-bold text-cyan-500 mt-2">{monthlyYieldKwh.toFixed(0)} <span className="text-lg">kWh</span></p>
+                    <div className="p-5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 print-border">
+                        <p className="text-xs text-cyan-600 dark:text-cyan-500 uppercase font-bold tracking-widest">Monthly Yield</p>
+                        <p className="text-3xl font-mono font-bold text-cyan-600 dark:text-cyan-500 mt-2">{monthlyYieldKwh.toFixed(0)} <span className="text-lg">kWh</span></p>
                     </div>
-                    <div className="p-5 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
-                        <p className="text-xs text-cyan-500 uppercase font-bold tracking-widest">Annual Yield</p>
-                        <p className="text-3xl font-mono font-bold text-cyan-500 mt-2">{annualYieldKwh.toFixed(0)} <span className="text-lg">kWh</span></p>
+                    <div className="p-5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 print-border">
+                        <p className="text-xs text-cyan-600 dark:text-cyan-500 uppercase font-bold tracking-widest">Annual Yield</p>
+                        <p className="text-3xl font-mono font-bold text-cyan-600 dark:text-cyan-500 mt-2">{annualYieldKwh.toFixed(0)} <span className="text-lg">kWh</span></p>
                     </div>
                 </div>
 
-                {/* Section 3: Electrical BOS */}
+                {/* Section 4: Electrical BOS */}
                 <h3 className="text-sm text-slate-500 uppercase font-bold tracking-widest mb-4 flex items-center gap-2"><Zap size={16}/> Balance of System (Electrical)</h3>
-                <div className="grid grid-cols-2 gap-4 mb-8">
+                <div className="grid grid-cols-2 gap-4 mb-8 print-break-avoid">
                     <div className="p-4 rounded-lg bg-slate-500/5 border border-slate-500/20 print-border flex justify-between items-center">
                         <div>
                             <p className="text-xs text-slate-500 mb-1">Max String Current (NEC 1.25x)</p>
@@ -853,18 +970,18 @@ const App = () => {
                         </div>
                         <Cpu className="text-slate-400 opacity-50" size={32} />
                     </div>
-                    <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 flex justify-between items-center">
+                    <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 print-border flex justify-between items-center">
                         <div>
-                            <p className="text-xs text-amber-500 font-bold mb-1 uppercase tracking-widest">Recommended DC Wire Gauge</p>
-                            <p className="text-xl font-mono font-bold text-amber-500">{recommendedGauge}</p>
+                            <p className="text-xs text-amber-600 dark:text-amber-500 font-bold mb-1 uppercase tracking-widest">Recommended DC Wire Gauge</p>
+                            <p className="text-xl font-mono font-bold text-amber-600 dark:text-amber-500">{recommendedGauge}</p>
                         </div>
-                        <AlertTriangle className="text-amber-500 opacity-50" size={32} />
+                        <AlertTriangle className="text-amber-600 dark:text-amber-500 opacity-50" size={32} />
                     </div>
                 </div>
 
-                {/* Section 4: Mechanical BOM */}
+                {/* Section 5: Mechanical BOM */}
                 <h3 className="text-sm text-slate-500 uppercase font-bold tracking-widest mb-4 flex items-center gap-2"><Layers size={16}/> Mechanical Bill of Materials</h3>
-                <table className="w-full text-left border-collapse print-border">
+                <table className="w-full text-left border-collapse print-border print-break-avoid">
                     <thead>
                         <tr className="border-b border-slate-500/30 text-xs text-slate-500 uppercase tracking-widest">
                             <th className="py-3 px-2">Component Category</th>
@@ -874,29 +991,29 @@ const App = () => {
                     </thead>
                     <tbody className="text-sm font-semibold divide-y divide-slate-500/10 print-text">
                         <tr>
-                            <td className="py-4 px-2 flex items-center gap-2"><Sun size={16} className="text-cyan-500"/> Photovoltaic Modules</td>
+                            <td className="py-4 px-2 flex items-center gap-2"><Sun size={16} className="text-cyan-600 dark:text-cyan-500"/> Photovoltaic Modules</td>
                             <td className="py-4 px-2">{activePanel.manufacturer} {activePanel.model} ({activePanel.electrical.wattage}W)</td>
-                            <td className="py-4 px-2 text-right font-mono text-cyan-500">{panelCount} units</td>
+                            <td className="py-4 px-2 text-right font-mono text-cyan-600 dark:text-cyan-500">{panelCount} units</td>
                         </tr>
                         <tr>
-                            <td className="py-4 px-2 flex items-center gap-2"><Layers size={16} className="text-cyan-500"/> Vertical Pillars</td>
+                            <td className="py-4 px-2 flex items-center gap-2"><Layers size={16} className="text-cyan-600 dark:text-cyan-500"/> Vertical Pillars</td>
                             <td className="py-4 px-2">{pillarType.replace('_',' ')} | {pillarSpec.w}"x{pillarSpec.d}" ({pillarSpec.g}G)</td>
-                            <td className="py-4 px-2 text-right font-mono text-cyan-500">{pillarCountX * pillarCountZ} units</td>
+                            <td className="py-4 px-2 text-right font-mono text-cyan-600 dark:text-cyan-500">{pillarCountX * pillarCountZ} units</td>
                         </tr>
                         <tr>
-                            <td className="py-4 px-2 flex items-center gap-2"><Layers size={16} className="text-cyan-500"/> Main Sloped Beams</td>
+                            <td className="py-4 px-2 flex items-center gap-2"><Layers size={16} className="text-cyan-600 dark:text-cyan-500"/> Main Sloped Beams</td>
                             <td className="py-4 px-2">{beamType.replace('_',' ')} | {beamSpec.w}"x{beamSpec.d}" ({beamSpec.g}G)</td>
-                            <td className="py-4 px-2 text-right font-mono text-cyan-500">{pillarCountX} x {formatMeters(totalArrayLength)}</td>
+                            <td className="py-4 px-2 text-right font-mono text-cyan-600 dark:text-cyan-500">{pillarCountX} x {formatMeters(totalArrayLength)}</td>
                         </tr>
                         <tr>
-                            <td className="py-4 px-2 flex items-center gap-2"><Layers size={16} className="text-cyan-500"/> Panel Rails</td>
+                            <td className="py-4 px-2 flex items-center gap-2"><Layers size={16} className="text-cyan-600 dark:text-cyan-500"/> Panel Rails</td>
                             <td className="py-4 px-2">{railType.replace('_',' ')} | {railSpec.w}"x{railSpec.d}" ({railSpec.g}G)</td>
-                            <td className="py-4 px-2 text-right font-mono text-cyan-500">{panelRows * 2} x {formatMeters(totalArrayWidth)}</td>
+                            <td className="py-4 px-2 text-right font-mono text-cyan-600 dark:text-cyan-500">{panelRows * 2} x {formatMeters(totalArrayWidth)}</td>
                         </tr>
                         <tr>
-                            <td className="py-4 px-2 flex items-center gap-2"><Activity size={16} className="text-cyan-500"/> Structural Bracing</td>
+                            <td className="py-4 px-2 flex items-center gap-2"><Activity size={16} className="text-cyan-600 dark:text-cyan-500"/> Structural Bracing</td>
                             <td className="py-4 px-2 capitalize">{bracingType.replace('_',' ')} Config</td>
-                            <td className="py-4 px-2 text-right font-mono text-cyan-500">{bracingType === 'none' ? '0' : 'Required'}</td>
+                            <td className="py-4 px-2 text-right font-mono text-cyan-600 dark:text-cyan-500">{bracingType === 'none' ? '0' : 'Required'}</td>
                         </tr>
                         <tr className="bg-slate-500/5 print-border">
                             <td className="py-4 px-2 font-bold" colSpan={2}>Total Structure Dead Load</td>
